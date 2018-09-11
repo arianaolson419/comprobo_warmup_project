@@ -1,4 +1,5 @@
-"""Controls a Neato using keyboard commands.
+"""
+Controls a Neato using keyboard commands similarly to teleop_twist.
 Authors: arianaolson419, abuchele
 """
 #!usr/bin/env python
@@ -13,17 +14,28 @@ import rospy
 from geometry_msgs.msg import Twist, Vector3
 
 class Teleop(object):
-    """Controls the robot using keyboard commands."""
+    """Controls the robot using keyboard commands. The key mapping is as follows:
+        k: stop
+        i: move forward
+        ,: move backward
+        j: spin clockwise
+        l: spin counter-clockwise
+        u: circle clockwise
+        o: circle counter-clockwise
+        m: increase speed
+        .: decrease speed
+    """
     def __init__(self):
         rospy.init_node('teleop')
         self.pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
 
         # Initialze state for keybindings
         self.settings = termios.tcgetattr(sys.stdin)
+        self.key = None
+        self.last_key = None    # The last movement key pressed.
 
         # Initial speed.
         self.linear_speed = 0.5
-        # TODO: do math to convert from linear to angular!
         self.angular_speed = 0.5
 
         # Initialize the movement vectors such that the robot is stationary.
@@ -54,10 +66,9 @@ class Teleop(object):
         return key
 
     def increase_speed(self):
-        """Increases the linear and angular speeds of the robot"""
+        """Increases the linear and angular speeds of the robot."""
         max_speed = 1.0
         self.linear_speed += 0.1
-        # TODO: do math to convert from linear to angular!
         self.angular_speed += 0.1
         
         if self.linear_speed > max_speed:
@@ -67,6 +78,7 @@ class Teleop(object):
             self.angular_speed = max_speed
 
     def decrease_speed(self):
+        """Decreases the linear and angular speed settings of the robot."""
         min_speed = 0.0
         self.linear_speed -= 0.1
         self.angular_speed -= 0.1
@@ -78,43 +90,47 @@ class Teleop(object):
             self.angular_speed = min_speed
 
     def stop_motors(self):
+        """Stops the robot."""
         self.twist.linear.x = 0.0
         self.twist.angular.z = 0.0
 
     def move_forward(self):
+        """Moves the robot forward in a straight line (linear velocity only)."""
         self.twist.linear.x = self.linear_speed
         self.twist.angular.z = 0.0
 
     def move_backwards(self):
+        """Moves the robot backwards in a straight line (linear velocity only)."""
         self.twist.linear.x = -self.linear_speed
         self.twist.angular.z = 0.0
 
     def spin_clockwise(self):
+        """Spins the robot in place clockwise (angular velocity only)."""
         self.twist.linear.x = 0.0
         self.twist.angular.z = self.angular_speed
 
     def spin_counter_clockwise(self):
+        """Spins the robot in place counter-clockwise (angular velocity only)."""
         self.twist.linear.x = 0.0
         self.twist.angular.z = -self.angular_speed
 
     def circle_clockwise(self):
+        """Moves the robot forward clockwise in a circle (both linear and angular velocity)."""
         self.twist.linear.x = self.linear_speed
         self.twist.angular.z = self.angular_speed
 
     def circle_counter_clockwise(self):
+        """Moves the robot forward counter-clockwise in a circle (both linear and angular velocity)."""
         self.twist.linear.x = self.linear_speed
         self.twist.angular.z = -self.angular_speed
 
-    def control_motors(self):
-        """There are several different "modes": move forward, move backward,
-        spin around center clockwise, spin counter clockwise, circle
-        clockwise, circle counter clockwise. We can control the speed at
-        which the robot operates in wach of these modes
+    def update_velocity(self, key):
+        """Updates the linear and angular velocity according to the given key.
+        Parameters
+        ----------
+        key: a character representing the pressed key.
         """
-        #while key !- '\x03':   # cntrl-C
-        key = None
-        key = self.getKey()
-        if key == 'k':
+        if key == 'k' or not key:
             self.stop_motors()
         elif key == 'i':
             self.move_forward()
@@ -129,23 +145,40 @@ class Teleop(object):
             self.circle_clockwise()
         elif key == 'o':
             self.circle_counter_clockwise()
-        # TODO: update speed while robot is moving.
-        elif key == 'm':
+
+    def control_motors(self):
+        """Interprets keyboard input and updates the state accordingly.
+        Publishes the velocity.
+        """
+        movement_keys = ['k', 'i', ',', 'j', 'l', 'u', 'o']
+        if self.key in movement_keys:
+            self.last_key = self.key
+        self.key = self.getKey()
+
+        if self.key == '\x03':
+            # Handles cntrl-c.
+            return False
+        elif self.key == 'm':
             self.increase_speed()
-        elif key == '.':
+            # Updates the velocity with the new linear and angular speeds.
+            self.update_velocity(self.last_key)
+        elif self.key == '.':
             self.decrease_speed()
-        # TODO: handle control c immediately.
-        elif key == '\x03':
-            return
-        print(self.linear_speed)
-        print(self.angular_speed)
+            # Updates the velocity with the new linear and angular speeds.
+            self.update_velocity(self.last_key)
+        else:
+            self.update_velocity(self.key)
+        
         self.pub.publish(self.twist)
+        return True
 
     def run(self):
         r = rospy.Rate(2)
         while not rospy.is_shutdown():
-            self.control_motors()
+            if not self.control_motors():
+                break
             r.sleep()
                 
+# Run the node.
 op = Teleop()
 op.run()
