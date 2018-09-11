@@ -1,3 +1,6 @@
+"""Controls a Neato using keyboard commands.
+Authors: arianaolson419, abuchele
+"""
 #!usr/bin/env python
 from __future__ import print_function, division
 
@@ -10,6 +13,7 @@ import rospy
 from geometry_msgs.msg import Twist, Vector3
 
 class Teleop(object):
+    """Controls the robot using keyboard commands."""
     def __init__(self):
         rospy.init_node('teleop')
         self.pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
@@ -37,6 +41,12 @@ class Teleop(object):
         self.twist.angular.z = 0.0
 
     def getKey(self):
+        """Reads keyboard input.
+
+        Returns
+        -------
+        A character representing the key that was read from stdin.
+        """
         tty.setraw(sys.stdin.fileno())
         select.select([sys.stdin], [], [], 0)
         key = sys.stdin.read(1)
@@ -44,6 +54,7 @@ class Teleop(object):
         return key
 
     def increase_speed(self):
+        """Increases the linear and angular speeds of the robot"""
         max_speed = 1.0
         self.linear_speed += 0.1
         # TODO: do math to convert from linear to angular!
@@ -118,10 +129,12 @@ class Teleop(object):
             self.circle_clockwise()
         elif key == 'o':
             self.circle_counter_clockwise()
+        # TODO: update speed while robot is moving.
         elif key == 'm':
             self.increase_speed()
         elif key == '.':
             self.decrease_speed()
+        # TODO: handle control c immediately.
         elif key == '\x03':
             return
         print(self.linear_speed)
