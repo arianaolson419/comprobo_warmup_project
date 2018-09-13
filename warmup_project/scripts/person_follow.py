@@ -12,6 +12,14 @@ class PersonFollow(object):
         self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         rospy.Subscriber('/stable_scan', LaserScan, self.control_motors)
         self.max_radius = 2.0
+        self.angular_speed = 1.0
+        self.twist = Twist()
+        self.twist.linear.x = 0.0
+        self.twist.linear.y = 0.0
+        self.twist.linear.z = 0.0
+        self.twist.angular.x = 0.0
+        self.twist.angular.y = 0.0
+        self.twist.angular.z = 0.0
 
     def pol_to_cart(self, angle_degrees, distance):
         x = np.cos(np.radians(angle_degrees))
@@ -33,7 +41,19 @@ class PersonFollow(object):
                 valid_ranges.append(self.pol_to_cart(i, r))
         cart_vector = self.calculate_center_of_mass(np.array(valid_ranges))
         pol_vector = self.cart_to_pol(cart_vector)
-        print(pol_vector)
+        
+        turn_time = np.deg2rad(180 + np.floor(pol_vector[0])) / self.angular_speed
+        print(180 + np.floor(pol_vector[0]))
+        print(turn_time)
+        start_time = rospy.Time.now()
+        end_time = start_time + rospy.Duration(turn_time)
+        
+        while (rospy.Time.now() < end_time and not rospy.is_shutdown()):
+            self.twist.angular.z = self.angular_speed
+            self.publisher.publish(self.twist)
+        self.twist.angular.z = 0.0
+
+        
 
     def run(self):
         rospy.spin()
