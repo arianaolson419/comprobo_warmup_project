@@ -18,10 +18,10 @@ class Teleop(object):
         k: stop
         i: move forward
         ,: move backward
-        j: spin clockwise
-        l: spin counter-clockwise
-        u: circle clockwise
-        o: circle counter-clockwise
+        j: spin counter-clockwise
+        u: circle counter-clockwise
+        l: spin clockwise
+        o: circle clockwise
         m: increase speed
         .: decrease speed
     """
