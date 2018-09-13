@@ -12,40 +12,51 @@ class WallFollow(object):
         self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         rospy.Subscriber('/scan', LaserScan, self.process_scan)
     def process_scan(self, msg):
-        range0 = msg.ranges[45]
-        range1 = msg.ranges[135]
-        range2 = msg.ranges[225]
-        range3 = msg.ranges[315]
+        ranges = self.check_ranges(msg.ranges) # Find nonzero ranges, plus or minus one degree 
+        range0 = ranges[0]
+        range1 = ranges[1]
+        range2 = ranges[2]
+        range3 = ranges[3]
         out_msg = Twist()
-        if ((range0 + range1) < (range2 + range3)):
+        print("Sum of 0 and 1: %f" % self.sum_for_compare(range0, range1))
+        print("Sum of 2 and 3: %f" % self.sum_for_compare(range2, range3))
+        if (self.sum_for_compare(range0, range1) < self.sum_for_compare(range2, range3)):
             turn_coords = self.turn_from_ranges(range0, range1)
-            if turn_coords is not None:
-                print("0 and 1")
-                out_msg.angular.z = turn_coords[0]
-                out_msg.linear.x = turn_coords[1]
-            else:
-                turn_coords = self.turn_from_ranges(range3, range2)
-                if turn_coords is not None:
-                    print("3 and 2")
-                    out_msg.angular.z = turn_coords[0]
-                    out_msg.linear.x = turn_coords[1]
-                else:
-                    out_msg.angular.z = 0.25
+            out_msg.angular.z = turn_coords[0]
+            out_msg.linear.x = turn_coords[1]
         else:
             turn_coords = self.turn_from_ranges(range3, range2)
-            if turn_coords is not None:
-                print("3 and 2")
-                out_msg.angular.z = turn_coords[0]
-                out_msg.linear.x = turn_coords[1]
-            else:
-                turn_coords = self.turn_from_ranges(range0, range1)
-                if turn_coords is not None:
-                    print("0 and 1")
-                    out_msg.angular.z = turn_coords[0]
-                    out_msg.linear.x = turn_coords[1]
-                else:
-                    out_msg.angular.z = 0.25
+            out_msg.angular.z = turn_coords[0]
+            out_msg.linear.x = turn_coords[1]
         self.publisher.publish(out_msg)
+
+    def check_ranges(self, ranges):
+        # Try to get a nonzero range value for each of the angles, with up to one degree in either direction off
+        if (len(ranges) > 359): 
+            angles = [45, 135, 225, 315]
+            angles_out = []
+            for angle in angles:
+                if (ranges[angle] != 0.0):
+                    angles_out += angle
+                elif (ranges[angle - 1] != 0.0):
+                    angles_out += angle
+                elif (ranges[angle - 1] != 0.0):
+                    angles_out += angle
+                else:
+                    angles_out += 0.0
+            return angles_out
+        else:
+            return [0.0, 0.0, 0.0, 0.0]
+
+    def sum_for_compare(self, range1, range2):
+        # If either range is zero, set that range to equal 10
+        # So when we compare the sets of ranges it will select for the ones with the closest sets of nozero points
+        if (range1 == 0.0):
+            range1 = 10.0
+        if (range2 == 0.0):
+            range2 = 10.0
+        return (range1 + range2)
+
     def turn_from_ranges(self, range0, range1):
         tolerance = 0.05 # Allowable difference in ranges
         kp = 1.5 # Proportional constant
@@ -65,7 +76,12 @@ class WallFollow(object):
                 # If we are aligned to wall, move forward
                 return (0.0, 0.25)
         else:
-            return None
+            if (range0 != 0.0):
+                return (0.25, 0.0)
+            elif (range1 != 0.0):
+                return (-0.25, 0.0)
+            else:
+                return (0.10, 0.0)
     def run(self):
         rospy.spin()
 
