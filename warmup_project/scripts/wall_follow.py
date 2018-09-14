@@ -4,6 +4,7 @@ import rospy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Bool
+import random
 
 
 class WallFollow(object):
@@ -12,7 +13,7 @@ class WallFollow(object):
         self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         rospy.Subscriber('/scan', LaserScan, self.process_scan)
     def process_scan(self, msg):
-        ranges = self.check_ranges(msg.ranges) # Find nonzero ranges, plus or minus one degree 
+        ranges = self.check_ranges(msg.ranges) # Find nonzero ranges, plus or minus up to five degrees
         range0 = ranges[0]
         range1 = ranges[1]
         range2 = ranges[2]
@@ -25,36 +26,34 @@ class WallFollow(object):
             out_msg.angular.z = turn_coords[0]
             out_msg.linear.x = turn_coords[1]
         else:
-            turn_coords = self.turn_from_ranges(range3, range2)
+            turn_coords = self.turn_from_ranges(range2, range3)
             out_msg.angular.z = turn_coords[0]
             out_msg.linear.x = turn_coords[1]
         self.publisher.publish(out_msg)
 
     def check_ranges(self, ranges):
-        # Try to get a nonzero range value for each of the angles, with up to one degree in either direction off
+        # Try to get a nonzero range value for each of the angles, with up to five degrees in either direction off
+        angles = [45, 135, 225, 315]
+        #angles = [315, 225, 45, 135]
+        adjustments = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]
+        ranges_out = [0.0, 0.0, 0.0, 0.0]
         if (len(ranges) > 359): 
-            angles = [45, 135, 225, 315]
-            angles_out = []
-            for angle in angles:
-                if (ranges[angle] != 0.0):
-                    angles_out += angle
-                elif (ranges[angle - 1] != 0.0):
-                    angles_out += angle
-                elif (ranges[angle - 1] != 0.0):
-                    angles_out += angle
-                else:
-                    angles_out += 0.0
-            return angles_out
+            for i in range(len(angles)):
+                for adjustment in adjustments:
+                    if (ranges[angles[i] + adjustment] != 0.0):
+                        ranges_out[i] = ranges[angles[i] + adjustment]
+                        break
+            return ranges_out
         else:
-            return [0.0, 0.0, 0.0, 0.0]
+            return ranges_out
 
     def sum_for_compare(self, range1, range2):
-        # If either range is zero, set that range to equal 10
+        # If either range is zero, set that range to equal 20
         # So when we compare the sets of ranges it will select for the ones with the closest sets of nozero points
         if (range1 == 0.0):
-            range1 = 10.0
+            range1 = 20.0
         if (range2 == 0.0):
-            range2 = 10.0
+            range2 = 20.0
         return (range1 + range2)
 
     def turn_from_ranges(self, range0, range1):
@@ -77,11 +76,11 @@ class WallFollow(object):
                 return (0.0, 0.25)
         else:
             if (range0 != 0.0):
-                return (0.25, 0.0)
-            elif (range1 != 0.0):
                 return (-0.25, 0.0)
+            elif (range1 != 0.0):
+                return (0.25, 0.0)
             else:
-                return (0.10, 0.0)
+                return (0.25 * random.choice([-1, 1]), 0.0)
     def run(self):
         rospy.spin()
 
