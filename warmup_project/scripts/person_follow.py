@@ -8,12 +8,12 @@ from geometry_msgs.msg import Twist, Vector3
 
 class PersonFollow(object):
     def __init__(self):
-        rospy.init_node('perosn_follow')
-        self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
-        rospy.Subscriber('/stable_scan', LaserScan, self.control_motors)
-        self.max_radius = 2.0
-        self.angular_speed = 1.0
+        self.twist_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        rospy.Subscriber('/stable_scan', LaserScan, self.process_scan)
+        rospy.init_node('person_follow') 
+
         self.twist = Twist()
+        
         self.twist.linear.x = 0.0
         self.twist.linear.y = 0.0
         self.twist.linear.z = 0.0
@@ -21,42 +21,37 @@ class PersonFollow(object):
         self.twist.angular.y = 0.0
         self.twist.angular.z = 0.0
 
-    def pol_to_cart(self, angle_degrees, distance):
-        x = np.cos(np.radians(angle_degrees))
-        y = np.sin(np.radians(angle_degrees))
-        return np.array([x, y])
+        self.radius_max = 1.0
+        self.radius_min = 0.3
 
-    def cart_to_pol(self, cart_vector):
-        r = np.sqrt(cart_vector[0] ** 2 + cart_vector[1] ** 2)
-        theta = np.rad2deg(np.arctan2(cart_vector[1], cart_vector[0]))
-        return np.array([theta, r])
+    def pol_to_cart(self, radius, theta):
+        x = np.cos(theta) * radius
+        y = np.sin(theta) * radius
+        return x, y
 
-    def calculate_center_of_mass(self, point_vectors):
-        return np.mean(point_vectors, axis=0)
-        
-    def control_motors(self, msg):
-        valid_ranges = []
+    def angle_normalize_radians(self, z):
+        return np.arctan2(np.sin(z), np.cos(z))
+
+    def process_scan(self, msg):
+        valid_points = []
         for i, r in enumerate(msg.ranges[:-1]):
-            if r < self.max_radius and r != 0.0:
-                valid_ranges.append(self.pol_to_cart(i, r))
-        cart_vector = self.calculate_center_of_mass(np.array(valid_ranges))
-        pol_vector = self.cart_to_pol(cart_vector)
-        
-        turn_time = np.deg2rad(180 + np.floor(pol_vector[0])) / self.angular_speed
-        print(180 + np.floor(pol_vector[0]))
-        print(turn_time)
-        start_time = rospy.Time.now()
-        end_time = start_time + rospy.Duration(turn_time)
-        
-        while (rospy.Time.now() < end_time and not rospy.is_shutdown()):
-            self.twist.angular.z = self.angular_speed
-            self.publisher.publish(self.twist)
-        self.twist.angular.z = 0.0
-
-        
+            if r != 0.0 and r < self.radius_max and r > self.radius_min:
+                valid_points.append([r, self.angle_normalize_radians(np.deg2rad(i))])
+        center_of_mass = np.mean(valid_points, axis=0)
+        print(center_of_mass)
+        if msg.ranges == [0.0] * 361:
+            self.twist.linear.x = 0
+            self.twist.angular.z = 0
+        elif np.abs(center_of_mass[1]) > 0.1:
+            self.twist.linear.x = center_of_mass[0] - 0.5
+            self.twist.angular.z = center_of_mass[1] * 0.75
+        else:
+            self.twist.linear.x = 0
+            self.twist.angular.z = 0
+        self.twist_pub.publish(self.twist)
 
     def run(self):
         rospy.spin()
-        
+
 follow = PersonFollow()
 follow.run()
