@@ -15,6 +15,7 @@ class WallFollow(object):
         self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
         rospy.Subscriber('/scan', LaserScan, self.process_scan)
+
     def process_scan(self, msg):
         ranges = self.check_ranges(msg.ranges) # Find nonzero ranges, plus or minus up to five degrees
         range0 = ranges[0]
@@ -22,9 +23,9 @@ class WallFollow(object):
         range2 = ranges[2]
         range3 = ranges[3]
         out_msg = Twist()
-        print("Sum of 0 and 1: %f" % self.sum_for_compare(range0[1], range1[1]))
-        print("Sum of 2 and 3: %f" % self.sum_for_compare(range2[1], range3[1]))
+        # Compare the sums of each set of ranges, with zeros counting as 20
         if (self.sum_for_compare(range0[1], range1[1]) < self.sum_for_compare(range2[1], range3[1])):
+            # Find which set has both ranges closest, or both ranges at all, or one range that's closer
             turn_coords = self.turn_from_ranges(range0, range1)
             out_msg.angular.z = turn_coords[0]
             out_msg.linear.x = turn_coords[1]
@@ -37,9 +38,8 @@ class WallFollow(object):
     def check_ranges(self, ranges):
         # Try to get a nonzero range value for each of the angles, with up to five degrees in either direction off
         angles = [45, 135, 225, 315]
-        #angles = [315, 225, 45, 135]
         adjustments = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]
-        ranges_out = [[45, 0.0], [135, 0.0], [225, 0.0], [315,0.0]]
+        ranges_out = [[angles[0], 0.0], [angles[1], 0.0], [angles[2], 0.0], [angles[3], 0.0]]
         if (len(ranges) > 359): 
             for i in range(len(angles)):
                 for adjustment in adjustments:
@@ -51,6 +51,7 @@ class WallFollow(object):
             return ranges_out
 
     def publish_marker(self, range_tuple0, range_tuple1):
+        # Build the marker and publish it
         marker = Marker()
         marker.type = 2
         marker.header.frame_id = "base_link"
@@ -61,8 +62,6 @@ class WallFollow(object):
         marker.pose.position.x = np.cos(range_tuple0[0])*range_tuple0[1]
         marker.pose.position.y = np.sin(range_tuple0[0])*range_tuple0[1]
         self.marker_publisher.publish(marker)
-
-
 
     def sum_for_compare(self, range1, range2):
         # If either range is zero, set that range to equal 20
@@ -83,7 +82,6 @@ class WallFollow(object):
             difference = range0 - range1
             proportion = (difference * 2)/(range0 + range1)
             # Making turn speed more regular
-            print(difference)
             if (difference > tolerance):
                 # Adjust angle if we are not aligned
                 return (proportion/kp, 0.0)
@@ -91,16 +89,20 @@ class WallFollow(object):
                 # Adjust angle if we are not aligned
                 return (proportion/kp, 0.0)
             else:
-                # If we are aligned to wall, move forward
+                # If we are aligned to wall, move forward and publish a marker to where the wall is
                 self.publish_marker(range_tuple0, range_tuple1)
                 return (0.0, 0.25)
         else:
             if (range0 != 0.0):
+                # if we're only getting one range, adjust to turn the missing range closer
                 return (-0.25, 0.0)
             elif (range1 != 0.0):
+                # if we're only getting one range, adjust to turn the missing range closer
                 return (0.25, 0.0)
             else:
+                # if we're not getting any ranges, rotate slowly in a random direction. 
                 return (0.25 * random.choice([-1, 1]), 0.0)
+
     def run(self):
         rospy.spin()
 
