@@ -6,6 +6,7 @@ import numpy as np
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 from neato_node.msg import Bump
+from visualization_msgs.msg import Marker
 
 """
 Person following. Part of the CompRobo warmup project.
@@ -21,6 +22,7 @@ class PersonFollowNode(object):
     """
     def __init__(self):
         self.twist_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.vis_pub =rospy.Publisher('/visualization_marker', Marker, queue_size=10)
         rospy.Subscriber('/stable_scan', LaserScan, self.process_scan)
         rospy.Subscriber('/bump', Bump, self.emergency_stop)
 
@@ -33,6 +35,29 @@ class PersonFollowNode(object):
         self.twist.angular.x = 0.0
         self.twist.angular.y = 0.0
         self.twist.angular.z = 0.0
+
+        self.mark = Marker()
+        
+        self.mark.ns = "person_follow"
+        self.mark.id = 0
+        self.mark.type = 2
+        self.mark.action = 0
+        self.mark.scale.x = 0.1
+        self.mark.scale.y = 0.1
+        self.mark.scale.z = 0.1
+        self.mark.color.r = 0.0
+        self.mark.color.g = 1.0
+        self.mark.color.b = 0.0
+        self.mark.color.a = 1.0
+        self.mark.pose.position.x = 0.0
+        self.mark.pose.position.y = 0.0
+        self.mark.pose.position.z = 0.0
+        self.mark.pose.orientation.x = 0.0
+        self.mark.pose.orientation.y = 0.0
+        self.mark.pose.orientation.z = 0.0
+        self.mark.pose.orientation.w = 1.0
+        self.mark.header.frame_id = "base_link"
+        self.mark.header.stamp = rospy.Time()
 
         self.radius_max = 1.5
         # A minimum is needed to ignore LIDAR detecting parts of the robot.
@@ -86,6 +111,7 @@ class PersonFollowNode(object):
             # TODO: Consider refining person detection further to detect valid
             # objects and movement.
             center_of_mass = np.mean(valid_points, axis=0)
+
             if np.abs(np.sum(center_of_mass)) > 0.1:
                 # PI control is used for both the angle of the robot and the distance from the target.
                 self.twist.linear.x = center_of_mass[0] *0.75 + self.integrated_error_linear * 0.02
@@ -96,6 +122,13 @@ class PersonFollowNode(object):
 
             self.integrated_error_linear += center_of_mass[0]
             self.integrated_error_angular += center_of_mass[1]
+            
+            # Convert to cartesian coordinates for visualization
+            center_cart = self.pol_to_cart(center_of_mass[0], center_of_mass[1])
+            self.mark.pose.position.x = center_cart[0]
+            self.mark.pose.position.y = center_cart[1]
+
+        self.vis_pub.publish(self.mark)
         self.twist_pub.publish(self.twist)
 
     def emergency_stop(self, msg):
