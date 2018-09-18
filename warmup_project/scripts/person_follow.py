@@ -59,12 +59,9 @@ class PersonFollowNode(object):
         self.mark.header.frame_id = "base_link"
         self.mark.header.stamp = rospy.Time()
 
-        self.radius_max = 1.5
+        self.radius_max = 1.0
         # A minimum is needed to ignore LIDAR detecting parts of the robot.
-        self.radius_min = 0.3 
-
-        self.integrated_error_linear = 0.0
-        self.integrated_error_angular = 0.0
+        self.radius_min = 0.2 
 
     def pol_to_cart(self, radius, angle):
         """Convert  laser scan data to two-dimensional cartesian coordinates.
@@ -112,17 +109,15 @@ class PersonFollowNode(object):
             # objects and movement.
             center_of_mass = np.mean(valid_points, axis=0)
 
-            if np.abs(np.sum(center_of_mass)) > 0.1:
+            print(center_of_mass[0])
+            if center_of_mass[0] > 0.5:
                 # PI control is used for both the angle of the robot and the distance from the target.
-                self.twist.linear.x = center_of_mass[0] *0.75 + self.integrated_error_linear * 0.02
-                self.twist.angular.z = center_of_mass[1] * 0.75 + self.integrated_error_angular * 0.02
+                self.twist.linear.x = center_of_mass[0] * 0.5
+                self.twist.angular.z = center_of_mass[1] * 0.75
             else:
                 # TODO: Consider making the robot wander if it cannot detect a person.
                 self.stop_motors()
 
-            self.integrated_error_linear += center_of_mass[0]
-            self.integrated_error_angular += center_of_mass[1]
-            
             # Convert to cartesian coordinates for visualization
             center_cart = self.pol_to_cart(center_of_mass[0], center_of_mass[1])
             self.mark.pose.position.x = center_cart[0]
