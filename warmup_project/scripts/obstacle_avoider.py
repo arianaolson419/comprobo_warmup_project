@@ -14,10 +14,61 @@ class ObstacleAvoider(object):
         rospy.init_node('obstacle_avoider')
         self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
-        rospy.Subscriber('/scan', LaserScan, self.process_scan)
+        rospy.Subscriber('/stable_scan', LaserScan, self.process_scan)
 
     def process_scan(self, msg):
-        pass
+        (x_ranges, y_ranges) = self.add_range_vectors(self.clean_scan(msg.ranges))
+        (r, theta) = self.cartesian_to_polar(x_ranges, y_ranges)
+        msg_out = Twist()
+        msg_out.linear.x = 0.1
+        msg_out.angular.z = theta
+        print("theta: %f" % theta)
+        self.publish_marker(0.5, theta)
+        print("r: %f" % r)
+        self.publisher.publish(msg_out)
+
+    def publish_marker(self, r, theta):
+        # Build the marker and publish it
+        marker = Marker()
+        marker.type = 2
+        marker.header.frame_id = "base_link"
+        marker.scale = Vector3(0.1, 0.1, 0.1)
+        marker.color = ColorRGBA(100, 100, 100, 255)
+        marker.pose = Pose()
+        marker.pose.position = Point()
+        (marker.pose.position.x, marker.pose.position.y) = self.polar_to_cartesian(theta, r)
+        self.marker_publisher.publish(marker)
+
+
+    def add_range_vectors(self, ranges):
+        total_x = 0
+        total_y = 0
+        for range_val in ranges:
+            (x, y) = self.polar_to_cartesian(range_val[0], 1/(np.power(range_val[1], 3)))
+            total_x += x
+            total_y += y
+        return (total_x, total_y)
+
+    def angle_normalize_radians(self, z):
+        """Normalizes an angle in radians to between -pi and pi."""
+        return np.arctan2(np.sin(z), np.cos(z))
+
+    def clean_scan(self, raw_ranges):
+        ranges_out = []
+        for i in range(len(raw_ranges)):
+            if (raw_ranges[i] != 0.0):
+                ranges_out.append([i, raw_ranges[i]])
+        return ranges_out
+
+    def polar_to_cartesian(self, theta, r):
+        x = np.cos(theta)*r
+        y = np.sin(theta)*r
+        return (x, y)
+
+    def cartesian_to_polar(self, x, y):
+        r = np.sqrt(np.square(x) + np.square(y))
+        theta = np.arctan(y/x)
+        return (r, theta)
 
     def run(self):
         rospy.spin()
