@@ -50,7 +50,7 @@ class FiniteStateController(object):
 
 	def choose_state(self):
 		# Method of choosing what state to run in, probably based on whether the obstacle avoider is actively avoiding an obstacle or not
-		if (!self.e_stop):
+		if not self.e_stop:
 			self.publish_state(E_STOP)
 			if (self.obst_cmd_vel.linear.x > 0):
 				self.publish_state(OBST_AVOID)
