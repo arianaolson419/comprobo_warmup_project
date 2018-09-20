@@ -2,10 +2,12 @@
 from __future__ import print_function, division
 import rospy
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist, Vector3, Pose, Point
 from visualization_msgs.msg import Marker
 from std_msgs.msg import Bool, ColorRGBA
 import random
+import math
 import numpy as np
 from tf.transformations import euler_from_quaternion, rotation_matrix, quaternion_from_matrix
 from scipy import stats
@@ -20,23 +22,26 @@ class WallFollow(object):
         self.position = Pose()
 
     def process_scan(self, msg):
-        ranges = self.check_ranges(msg.ranges) # Find nonzero ranges, plus or minus up to five degrees
-        range0 = ranges[0]
-        range1 = ranges[1]
-        range2 = ranges[2]
-        range3 = ranges[3]
-        out_msg = Twist()
-        # Compare the sums of each set of ranges, with zeros counting as 20
-        if (self.sum_for_compare(range0[1], range1[1]) < self.sum_for_compare(range2[1], range3[1])):
-            # Find which set has both ranges closest, or both ranges at all, or one range that's closer
-            turn_coords = self.turn_from_ranges(range0, range1)
-            out_msg.angular.z = turn_coords[0]
-            out_msg.linear.x = turn_coords[1]
-        else:
-            turn_coords = self.turn_from_ranges(range2, range3)
-            out_msg.angular.z = turn_coords[0]
-            out_msg.linear.x = turn_coords[1]
-        self.publisher.publish(out_msg)
+        rospy.on_shutdown(self.stop_motors)
+        target = (2, 2)
+        self.go_to_point(target)
+#        ranges = self.check_ranges(msg.ranges) # Find nonzero ranges, plus or minus up to five degrees
+#        range0 = ranges[0]
+#        range1 = ranges[1]
+#        range2 = ranges[2]
+#        range3 = ranges[3]
+#        out_msg = Twist()
+#        # Compare the sums of each set of ranges, with zeros counting as 20
+#        if (self.sum_for_compare(range0[1], range1[1]) < self.sum_for_compare(range2[1], range3[1])):
+#            # Find which set has both ranges closest, or both ranges at all, or one range that's closer
+#            turn_coords = self.turn_from_ranges(range0, range1)
+#            out_msg.angular.z = turn_coords[0]
+#            out_msg.linear.x = turn_coords[1]
+#        else:
+#            turn_coords = self.turn_from_ranges(range2, range3)
+#            out_msg.angular.z = turn_coords[0]
+#            out_msg.linear.x = turn_coords[1]
+#        self.publisher.publish(out_msg)
 
     def check_ranges(self, ranges):
         # Try to get a nonzero range value for each of the angles, with up to five degrees in either direction off
@@ -76,8 +81,7 @@ class WallFollow(object):
         return (range1 + range2)
 
     def update_neato_pos(self, msg):
-        self.position = msg.pose.pose.position
-        print(self.position)
+        self.position = msg.pose.pose
 
     def turn_from_ranges(self, range_tuple0, range_tuple1):
         tolerance = 0.05 # Allowable difference in ranges
@@ -110,8 +114,58 @@ class WallFollow(object):
                 # if we're not getting any ranges, rotate slowly in a random direction. 
                 return (0.25 * random.choice([-1, 1]), 0.0)
 
+    def cartesian_to_polar(self, x, y):
+        r = np.sqrt(np.square(x) + np.square(y))
+        theta = np.arctan(y/x)
+        return (r, theta)
+
+    def convert_pose_to_xy_and_theta(self, pose):
+        """ Convert pose (geometry_msgs.Pose) to a (x,y,yaw) tuple """
+        orientation_tuple = (pose.orientation.x,
+                             pose.orientation.y,
+                             pose.orientation.z,
+                             pose.orientation.w)
+        angles = euler_from_quaternion(orientation_tuple)
+        return (pose.position.x, pose.position.y, angles[2])
+
+    def angle_normalize(self, z):
+        """ convenience function to map an angle to the range [-pi,pi] """
+        return math.atan2(math.sin(z), math.cos(z))
+
+    def angle_diff(self, a, b):
+        """ Calculates the difference between angle a and angle b (both should be in radians)
+            the difference is always based on the closest rotation from angle a to angle b
+            examples:
+                angle_diff(.1,.2) -> -.1
+                angle_diff(.1, 2*math.pi - .1) -> .2
+                angle_diff(.1, .2+2*math.pi) -> -.1
+        """
+        a = self.angle_normalize(a)
+        b = self.angle_normalize(b)
+        d1 = a-b
+        d2 = 2*math.pi - math.fabs(d1)
+        if d1 > 0:
+            d2 *= -1.0
+        if math.fabs(d1) < math.fabs(d2):
+            return d1
+        else:
+            return d2
+
     def go_to_point(self, point):
-        pass
+        """Go to a target point. 
+        point: a cartesian point of the form (x, y).
+        """
+        current_position = self.convert_pose_to_xy_and_theta(self.position)
+        print(current_position)
+        distance = np.linalg.norm([np.array(point) - np.array(current_position[:2])])
+        point_rel = np.array(point) - np.array(current_position[:2])
+        point_rel_polar = self.cartesian_to_polar(point_rel[0], point_rel[1])
+        angle_error = self.angle_diff(current_position[2], point_rel_polar[1])
+        print(angle_error)
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = 0.2 * angle_error
+        self.publisher.publish(twist)
 
     def ransac_ranges(self, ranges):
         iterations = 0
@@ -123,61 +177,29 @@ class WallFollow(object):
         error_thresh = 0.5
         while (iterations < max_iterations):
             maybeinliers = random.sample(ranges, n)
-            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress(val[0] for val in maybeinliers, val[1] for val in maybeinliers)
+            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress([val[0] for val in maybeinliers], [val[1] for val in maybeinliers])
             alsoinliers = []
             for val in (ranges not in maybeinliers):
                 if (abs(val[0]*slope + intercept - val[1]) < error_thresh ): #if point fits maybemodel with an error smaller than t
                     alsoinliers += val
             if (len(alsoinliers) > d):
-                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress(val[0] for val in (maybeinliers + alsoinliers), val[1] for val in (maybeinliers + alsoinliers)) # model parameters fitted to all points in maybeinliers and alsoinliers
+                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress([val[0] for val in (maybeinliers + alsoinliers)], [val[1] for val in (maybeinliers + alsoinliers)]) # model parameters fitted to all points in maybeinliers and alsoinliers
                 if (std_err < besterr):
                     bestfit = bettermodel
                     besterr = thiserr
             iterations += 1
         return bestfit
-
-"""
-Pseudocode for ransac, from wikipedia
-Given:
-    data – a set of observations
-    model – a model to explain observed data points
-    n – minimum number of data points required to estimate model parameters
-    k – maximum number of iterations allowed in the algorithm
-    t – threshold value to determine data points that are fit well by model 
-    d – number of close data points required to assert that a model fits well to data
-
-Return:
-    bestfit – model parameters which best fit the data (or nul if no good model is found)
-
-iterations = 0
-bestfit = nul
-besterr = something really large
-while iterations < k {
-    maybeinliers = n randomly selected values from data
-    maybemodel = model parameters fitted to maybeinliers
-    alsoinliers = empty set
-    for every point in data not in maybeinliers {
-        if point fits maybemodel with an error smaller than t
-             add point to alsoinliers
-    }
-    if the number of elements in alsoinliers is > d {
-        % this implies that we may have found a good model
-        % now test how good it is
-        bettermodel = model parameters fitted to all points in maybeinliers and alsoinliers
-        thiserr = a measure of how well bettermodel fits these points
-        if thiserr < besterr {
-            bestfit = bettermodel
-            besterr = thiserr
-        }
-    }
-    increment iterations
-}
-return bestfit
-"""
-
+    
+    def stop_motors(self):
+        """Stops all movement of the robot."""
+        twist = Twist()
+        twist.linear.x = 0
+        twist.angular.z = 0
+        self.publisher.publish(twist)
 
     def run(self):
         rospy.spin()
+
 
 if __name__ == '__main__':
     wall_follow = WallFollow()
