@@ -13,7 +13,7 @@ from tf.transformations import euler_from_quaternion, rotation_matrix, quaternio
 class ObstacleAvoider(object):
     def __init__(self):
         rospy.init_node('obstacle_avoider')
-        self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.publisher = rospy.Publisher('/obst/cmd_vel', Twist, queue_size=10)
         self.subscriber = rospy.Subscriber('/odom', Odometry, self.update_neato_pos)
         rospy.Subscriber('/stable_scan', LaserScan, self.process_scan)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
@@ -23,7 +23,9 @@ class ObstacleAvoider(object):
         (x_ranges, y_ranges) = self.add_range_vectors(self.clean_scan(msg.ranges))
         (r, theta) = self.cartesian_to_polar(x_ranges, y_ranges)
         msg_out = Twist()
-        msg_out.linear.x = 0.1
+        msg_out.linear.x = 1.0 - abs(theta)
+        if (msg_out.linear.x < 0.0):
+            msg_out.linear.x = 0.0
         msg_out.angular.z = theta
         print("theta: %f" % theta)
         self.publish_marker(0.5, theta)

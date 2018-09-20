@@ -17,51 +17,16 @@ from scipy import stats
 class WallFollow(object):
     def __init__(self):
         rospy.init_node('wall_follow')
-        self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.publisher = rospy.Publisher('/wall_follow/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
-        rospy.Subscriber('/stable_scan', LaserScan, self.process_scan)
         rospy.Subscriber('/projected_stable_scan', PointCloud, self.process_scan_ransac)
         rospy.Subscriber('/odom', Odometry, self.update_neato_pos)
         self.position = Pose()
 
-    def process_scan(self, msg):
-        rospy.on_shutdown(self.stop_motors)
-        target = (2, 2)
-        self.go_to_point(target)
-#        ranges = self.check_ranges(msg.ranges) # Find nonzero ranges, plus or minus up to five degrees
-#        range0 = ranges[0]
-#        range1 = ranges[1]
-#        range2 = ranges[2]
-#        range3 = ranges[3]
-#        out_msg = Twist()
-#        # Compare the sums of each set of ranges, with zeros counting as 20
-#        if (self.sum_for_compare(range0[1], range1[1]) < self.sum_for_compare(range2[1], range3[1])):
-#            # Find which set has both ranges closest, or both ranges at all, or one range that's closer
-#            turn_coords = self.turn_from_ranges(range0, range1)
-#            out_msg.angular.z = turn_coords[0]
-#            out_msg.linear.x = turn_coords[1]
-#        else:
-#            turn_coords = self.turn_from_ranges(range2, range3)
-#            out_msg.angular.z = turn_coords[0]
-#            out_msg.linear.x = turn_coords[1]
-#        self.publisher.publish(out_msg)
+    def publish_neato_pos(self):
+        self.publish_marker(self.position.position.x, self.position.position.y)
 
-    def check_ranges(self, ranges):
-        # Try to get a nonzero range value for each of the angles, with up to five degrees in either direction off
-        angles = [45, 135, 225, 315]
-        adjustments = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]
-        ranges_out = [[angles[0], 0.0], [angles[1], 0.0], [angles[2], 0.0], [angles[3], 0.0]]
-        if (len(ranges) > 359): 
-            for i in range(len(angles)):
-                for adjustment in adjustments:
-                    if (ranges[angles[i] + adjustment] != 0.0):
-                        ranges_out[i] = [angles[i] + adjustment, ranges[angles[i] + adjustment]]
-                        break
-            return ranges_out
-        else:
-            return ranges_out
-
-    def publish_marker(self, range_tuple0, range_tuple1):
+    def publish_marker(self, pointx, pointy):
         # Build the marker and publish it
         marker = Marker()
         marker.type = 2
@@ -70,18 +35,26 @@ class WallFollow(object):
         marker.color = ColorRGBA(100, 100, 100, 255)
         marker.pose = Pose()
         marker.pose.position = Point()
-        marker.pose.position.x = np.cos(range_tuple0[0])*range_tuple0[1]
-        marker.pose.position.y = np.sin(range_tuple0[0])*range_tuple0[1]
+        marker.pose.position.x = pointx
+        marker.pose.position.y = pointy
         self.marker_publisher.publish(marker)
 
-    def sum_for_compare(self, range1, range2):
-        # If either range is zero, set that range to equal 20
-        # So when we compare the sets of ranges it will select for the ones with the closest sets of nozero points
-        if (range1 == 0.0):
-            range1 = 20.0
-        if (range2 == 0.0):
-            range2 = 20.0
-        return (range1 + range2)
+    def publish_line(self, slope, intercept):
+        # Build a line and publish it
+        marker = Marker()
+        marker.type = 4 # LINE_STRIP
+        marker.header.frame_id = "odom"
+        marker.scale = Vector3(0.1, 0.1, 0.1)
+        marker.color = ColorRGBA(0, 255, 255, 255)
+        point1 = Point()
+        point2 = Point()
+        point1.x = intercept
+        point1.y = 0
+        point2.x = 3
+        point2.y = 3*slope
+        marker.points += point1
+        marker.points += point2
+        self.marker_publisher.publish(marker)
 
     def update_neato_pos(self, msg):
         self.position = msg.pose.pose
@@ -160,15 +133,17 @@ class WallFollow(object):
     def approach_follow_wall(self, ranges):
         # Find a wall, check how far we are from it, approach it if needed, else follow
         slope, intercept, r_value, p_value, std_err = self.ransac_ranges(ranges)
+        self.publish_line(slope, intercept)
+        self.publish_neato_pos()
         perpendicular_slope = -1./slope
-        des_distance_from_wall = 0.5 
-        error_thresh = 0.2
+        along_wall_incr = 0.1 # increment to travel along wall
+        target_distance_from_wall = 0.5 # distance from wall we want to be
+        error_thresh = 0.2 # deviation from target distance from wall allowed
         dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
-        if (abs(dist_from_line - des_distance_from_wall) > error_thresh):
-            self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - des_distance_from_wall)))
+        if (abs(dist_from_line - target_distance_from_wall) > error_thresh):
+            self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - target_distance_from_wall)))
         else:
-            pass
-
+            self.go_to_point(self.position_along_slope(slope, along_wall_incr))
 
     def position_along_slope(self, slope_to_follow, distance):
         # Find a new position "distance" closer along "slope_to_follow"
@@ -207,13 +182,14 @@ class WallFollow(object):
         self.publisher.publish(twist)
 
     def ransac_ranges(self, ranges):
+        # Implementation of the RANSAC algorithm adopted from wikipedia pseudocode: https://en.wikipedia.org/wiki/Random_sample_consensus
         iterations = 0
-        max_iterations = 20
+        max_iterations = 20 # number of iterations we want to run
         n = 20 # minimum number of data points required to estimate model parameters
         d = 10 # number of close data points required to assert that a model fits well to data
         bestfit = None
         besterr = 100
-        error_thresh = 0.5
+        error_thresh = 0.5  # meters away from the line a point can be before it's too far to fit the model
         while (iterations < max_iterations):
             maybeinliers = random.sample(ranges, n)
             maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress((val[0] for val in maybeinliers), (val[1] for val in maybeinliers))
