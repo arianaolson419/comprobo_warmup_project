@@ -128,6 +128,7 @@ class WallFollow(object):
             return d2
 
     def process_scan_ransac(self, msg):
+        rospy.on_shutdown(self.stop_motors)
         self.approach_follow_wall(([val.x, val.y] for val in msg.points))
 
     def approach_follow_wall(self, ranges):
