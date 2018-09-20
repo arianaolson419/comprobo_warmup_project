@@ -115,17 +115,28 @@ class WallFollow(object):
     def follow_wall(self, ranges):
         slope, intercept, r_value, p_value, std_err = self.ransac_ranges(ranges)
 
-    def compare_line(self, slope, intercept):
+    def approach_wall(self, slope, intercept):
+        # Check how far we are from given line, approach if needed
         perpendicular_slope = -1./slope
+        des_distance_from_wall = 0.5 
         dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
+        if (dist_from_line > des_distance_from_wall):
+            self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - des_distance_from_wall)))
 
+    def position_along_slope(self, slope_to_follow, distance):
+        # Find a new position "distance" closer along "slope_to_follow"
+        new_x = np.sqrt(np.square(distance)/(np.square(slope_to_follow) + 1)) + self.position.position.x
+        new_y = slope_to_follow * new_x + self.position.position.y
+        return (new_x, new_y)
 
     def compare_position(self, target):
+        # Compare current position to target position
         xdiff = self.position.poistion.x - target.x
         ydiff = self.position.position.y - target.y
         return xdiff, ydiff
 
     def dist_from_line(self, line_slope, line_intercept, point):
+        # Return distance from given point to given line
         return (abs(point[0]*line_slope - point[1] + line_intercept)/np.sqrt(np.square(line_slope) + 1))
 
     def go_to_point(self, point):
