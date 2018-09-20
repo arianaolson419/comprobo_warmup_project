@@ -8,6 +8,7 @@ from std_msgs.msg import Bool, ColorRGBA
 import random
 import numpy as np
 from tf.transformations import euler_from_quaternion, rotation_matrix, quaternion_from_matrix
+from scipy import stats
 
 class WallFollow(object):
     def __init__(self):
@@ -15,6 +16,8 @@ class WallFollow(object):
         self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
         rospy.Subscriber('/scan', LaserScan, self.process_scan)
+        rospy.Subscriber('/odom', Odometry, self.update_neato_pos)
+        self.position = Pose()
 
     def process_scan(self, msg):
         ranges = self.check_ranges(msg.ranges) # Find nonzero ranges, plus or minus up to five degrees
@@ -72,6 +75,10 @@ class WallFollow(object):
             range2 = 20.0
         return (range1 + range2)
 
+    def update_neato_pos(self, msg):
+        self.position = msg.pose.pose.position
+        print(self.position)
+
     def turn_from_ranges(self, range_tuple0, range_tuple1):
         tolerance = 0.05 # Allowable difference in ranges
         kp = 1.5 # Proportional constant
@@ -102,6 +109,72 @@ class WallFollow(object):
             else:
                 # if we're not getting any ranges, rotate slowly in a random direction. 
                 return (0.25 * random.choice([-1, 1]), 0.0)
+
+    def go_to_point(self, point):
+        pass
+
+    def ransac_ranges(self, ranges):
+        iterations = 0
+        max_iterations = 20
+        n = 20 # minimum number of data points required to estimate model parameters
+        d = 10 # number of close data points required to assert that a model fits well to data
+        bestfit = None
+        besterr = 100
+        error_thresh = 0.5
+        while (iterations < max_iterations):
+            maybeinliers = random.sample(ranges, n)
+            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress(val[0] for val in maybeinliers, val[1] for val in maybeinliers)
+            alsoinliers = []
+            for val in (ranges not in maybeinliers):
+                if (abs(val[0]*slope + intercept - val[1]) < error_thresh ): #if point fits maybemodel with an error smaller than t
+                    alsoinliers += val
+            if (len(alsoinliers) > d):
+                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress(val[0] for val in (maybeinliers + alsoinliers), val[1] for val in (maybeinliers + alsoinliers)) # model parameters fitted to all points in maybeinliers and alsoinliers
+                if (std_err < besterr):
+                    bestfit = bettermodel
+                    besterr = thiserr
+            iterations += 1
+        return bestfit
+
+"""
+Pseudocode for ransac, from wikipedia
+Given:
+    data – a set of observations
+    model – a model to explain observed data points
+    n – minimum number of data points required to estimate model parameters
+    k – maximum number of iterations allowed in the algorithm
+    t – threshold value to determine data points that are fit well by model 
+    d – number of close data points required to assert that a model fits well to data
+
+Return:
+    bestfit – model parameters which best fit the data (or nul if no good model is found)
+
+iterations = 0
+bestfit = nul
+besterr = something really large
+while iterations < k {
+    maybeinliers = n randomly selected values from data
+    maybemodel = model parameters fitted to maybeinliers
+    alsoinliers = empty set
+    for every point in data not in maybeinliers {
+        if point fits maybemodel with an error smaller than t
+             add point to alsoinliers
+    }
+    if the number of elements in alsoinliers is > d {
+        % this implies that we may have found a good model
+        % now test how good it is
+        bettermodel = model parameters fitted to all points in maybeinliers and alsoinliers
+        thiserr = a measure of how well bettermodel fits these points
+        if thiserr < besterr {
+            bestfit = bettermodel
+            besterr = thiserr
+        }
+    }
+    increment iterations
+}
+return bestfit
+"""
+
 
     def run(self):
         rospy.spin()
