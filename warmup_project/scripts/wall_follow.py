@@ -68,6 +68,24 @@ class WallFollow(object):
         marker.pose.position.y = np.sin(range_tuple0[0])*range_tuple0[1]
         self.marker_publisher.publish(marker)
 
+    def publish_line(self, slope, intercept):
+        # Build a line and publish it
+        marker = Marker()
+        marker.type = 4 # LINE_STRIP
+        marker.header.frame_id = "odom"
+        marker.scale = Vector3(0.1, 0.1, 0.1)
+        marker.color = ColorRGBA(0, 255, 255, 255)
+        point1 = Point()
+        point2 = Point()
+        point1.x = intercept
+        point1.y = 0
+        point2.x = 3
+        point2.y = 3*slope
+        marker.points += point1
+        marker.points += point2
+        self.marker_publisher.publish(marker)
+
+
     def sum_for_compare(self, range1, range2):
         # If either range is zero, set that range to equal 20
         # So when we compare the sets of ranges it will select for the ones with the closest sets of nozero points
@@ -118,14 +136,16 @@ class WallFollow(object):
     def approach_follow_wall(self, ranges):
         # Find a wall, check how far we are from it, approach it if needed, else follow
         slope, intercept, r_value, p_value, std_err = self.ransac_ranges(ranges)
+        self.publish_line(slope, intercept)
         perpendicular_slope = -1./slope
-        des_distance_from_wall = 0.5 
-        error_thresh = 0.2
+        along_wall_incr = 0.1 # increment to travel along wall
+        target_distance_from_wall = 0.5 # distance from wall we want to be
+        error_thresh = 0.2 # deviation from target distance from wall allowed
         dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
-        if (abs(dist_from_line - des_distance_from_wall) > error_thresh):
-            self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - des_distance_from_wall)))
+        if (abs(dist_from_line - target_distance_from_wall) > error_thresh):
+            self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - target_distance_from_wall)))
         else:
-            pass
+            self.go_to_point(self.position_along_slope(slope, along_wall_incr))
 
 
     def position_along_slope(self, slope_to_follow, distance):
