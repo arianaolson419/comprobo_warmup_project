@@ -17,11 +17,7 @@ class ObstacleAvoider(object):
         self.subscriber = rospy.Subscriber('/odom', Odometry, self.update_neato_pos)
         rospy.Subscriber('/stable_scan', LaserScan, self.process_scan)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
-        rospy.Subscriber('/projected_stable_scan', PointCloud, self.process_scan_projected)
         self.position = Pose()
-
-    def process_scan_projected(self, msg):
-        print("!!!!!!!!!!!!!!!!!")
 
     def process_scan(self, msg):
         (x_ranges, y_ranges) = self.add_range_vectors(self.clean_scan(msg.ranges))
