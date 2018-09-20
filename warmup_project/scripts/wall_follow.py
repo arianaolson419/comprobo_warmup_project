@@ -167,18 +167,22 @@ class WallFollow(object):
 
     def go_to_point(self, point):
         """Go to a target point. 
-        point: a cartesian point of the form (x, y).
+        point: a cartesian point of the form (x, y) in the odometry frame.
         """
         current_position = self.convert_pose_to_xy_and_theta(self.position)
-        print(current_position)
-        distance = np.linalg.norm([np.array(point) - np.array(current_position[:2])])
+
+        # The target point relative to the robot's coordinate system.
         point_rel = np.array(point) - np.array(current_position[:2])
         point_rel_polar = self.cartesian_to_polar(point_rel[0], point_rel[1])
-        angle_error = self.angle_diff(current_position[2], point_rel_polar[1])
-        print(angle_error)
+
+        # The distance from the target point (linear error).
+        distance = np.linalg.norm([np.array(point) - np.array(current_position[:2])])
+        # The angle between the heading of the robot and the target point (angular error).
+        angle = self.angle_diff(current_position[2], point_rel_polar[1])
+
         twist = Twist()
-        twist.linear.x = 0.0
-        twist.angular.z = 0.2 * angle_error
+        twist.linear.x = 0.0 * distance
+        twist.angular.z = 0.2 * angle
         self.publisher.publish(twist)
 
     def ransac_ranges(self, ranges):
