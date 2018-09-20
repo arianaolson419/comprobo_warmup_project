@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
 import rospy
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import LaserScan, PointCloud
 from geometry_msgs.msg import Twist, Vector3, Pose, Point
 from visualization_msgs.msg import Marker
 from std_msgs.msg import Bool, ColorRGBA
 import random
 import numpy as np
+from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion, rotation_matrix, quaternion_from_matrix
 from scipy import stats
 
@@ -15,7 +16,8 @@ class WallFollow(object):
         rospy.init_node('wall_follow')
         self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
-        rospy.Subscriber('/scan', LaserScan, self.process_scan)
+        rospy.Subscriber('/stable_scan', LaserScan, self.process_scan)
+        rospy.Subscriber('/projected_stable_scan', PointCloud, self.process_scan)
         rospy.Subscriber('/odom', Odometry, self.update_neato_pos)
         self.position = Pose()
 
@@ -110,6 +112,22 @@ class WallFollow(object):
                 # if we're not getting any ranges, rotate slowly in a random direction. 
                 return (0.25 * random.choice([-1, 1]), 0.0)
 
+    def follow_wall(self, ranges):
+        slope, intercept, r_value, p_value, std_err = self.ransac_ranges(ranges)
+
+    def compare_line(self, slope, intercept):
+        perpendicular_slope = -1./slope
+        dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
+
+
+    def compare_position(self, target):
+        xdiff = self.position.poistion.x - target.x
+        ydiff = self.position.position.y - target.y
+        return xdiff, ydiff
+
+    def dist_from_line(self, line_slope, line_intercept, point):
+        return (abs(point[0]*line_slope - point[1] + line_intercept)/np.sqrt(np.square(line_slope) + 1))
+
     def go_to_point(self, point):
         pass
 
@@ -123,57 +141,18 @@ class WallFollow(object):
         error_thresh = 0.5
         while (iterations < max_iterations):
             maybeinliers = random.sample(ranges, n)
-            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress(val[0] for val in maybeinliers, val[1] for val in maybeinliers)
+            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress((val[0] for val in maybeinliers), (val[1] for val in maybeinliers))
             alsoinliers = []
             for val in (ranges not in maybeinliers):
                 if (abs(val[0]*slope + intercept - val[1]) < error_thresh ): #if point fits maybemodel with an error smaller than t
                     alsoinliers += val
             if (len(alsoinliers) > d):
-                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress(val[0] for val in (maybeinliers + alsoinliers), val[1] for val in (maybeinliers + alsoinliers)) # model parameters fitted to all points in maybeinliers and alsoinliers
+                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress((val[0] for val in (maybeinliers + alsoinliers)), (val[1] for val in (maybeinliers + alsoinliers))) # model parameters fitted to all points in maybeinliers and alsoinliers
                 if (std_err < besterr):
                     bestfit = bettermodel
                     besterr = thiserr
             iterations += 1
         return bestfit
-
-"""
-Pseudocode for ransac, from wikipedia
-Given:
-    data – a set of observations
-    model – a model to explain observed data points
-    n – minimum number of data points required to estimate model parameters
-    k – maximum number of iterations allowed in the algorithm
-    t – threshold value to determine data points that are fit well by model 
-    d – number of close data points required to assert that a model fits well to data
-
-Return:
-    bestfit – model parameters which best fit the data (or nul if no good model is found)
-
-iterations = 0
-bestfit = nul
-besterr = something really large
-while iterations < k {
-    maybeinliers = n randomly selected values from data
-    maybemodel = model parameters fitted to maybeinliers
-    alsoinliers = empty set
-    for every point in data not in maybeinliers {
-        if point fits maybemodel with an error smaller than t
-             add point to alsoinliers
-    }
-    if the number of elements in alsoinliers is > d {
-        % this implies that we may have found a good model
-        % now test how good it is
-        bettermodel = model parameters fitted to all points in maybeinliers and alsoinliers
-        thiserr = a measure of how well bettermodel fits these points
-        if thiserr < besterr {
-            bestfit = bettermodel
-            besterr = thiserr
-        }
-    }
-    increment iterations
-}
-return bestfit
-"""
 
 
     def run(self):
