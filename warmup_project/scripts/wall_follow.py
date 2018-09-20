@@ -14,7 +14,7 @@ from scipy import stats
 class WallFollow(object):
     def __init__(self):
         rospy.init_node('wall_follow')
-        self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.publisher = rospy.Publisher('/wall_follow/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
         rospy.Subscriber('/projected_stable_scan', PointCloud, self.process_scan_ransac)
         rospy.Subscriber('/odom', Odometry, self.update_neato_pos)
@@ -99,13 +99,14 @@ class WallFollow(object):
         pass
 
     def ransac_ranges(self, ranges):
+        # Implementation of the RANSAC algorithm adopted from wikipedia pseudocode: https://en.wikipedia.org/wiki/Random_sample_consensus
         iterations = 0
-        max_iterations = 20
+        max_iterations = 20 # number of iterations we want to run
         n = 20 # minimum number of data points required to estimate model parameters
         d = 10 # number of close data points required to assert that a model fits well to data
         bestfit = None
         besterr = 100
-        error_thresh = 0.5
+        error_thresh = 0.5  # meters away from the line a point can be before it's too far to fit the model
         while (iterations < max_iterations):
             maybeinliers = random.sample(ranges, n)
             maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress((val[0] for val in maybeinliers), (val[1] for val in maybeinliers))
