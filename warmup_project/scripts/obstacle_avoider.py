@@ -23,7 +23,9 @@ class ObstacleAvoider(object):
         (x_ranges, y_ranges) = self.add_range_vectors(self.clean_scan(msg.ranges))
         (r, theta) = self.cartesian_to_polar(x_ranges, y_ranges)
         msg_out = Twist()
-        msg_out.linear.x = 0.1
+        msg_out.linear.x = 1.0 - abs(theta)
+        if (msg_out.linear.x < 0.0):
+            msg_out.linear.x = 0.0
         msg_out.angular.z = theta
         print("theta: %f" % theta)
         self.publish_marker(0.5, theta)
