@@ -3,12 +3,14 @@ from __future__ import print_function, division
 import rospy
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan, PointCloud
 from geometry_msgs.msg import Twist, Vector3, Pose, Point
 from visualization_msgs.msg import Marker
 from std_msgs.msg import Bool, ColorRGBA
 import random
 import math
 import numpy as np
+from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion, rotation_matrix, quaternion_from_matrix
 from scipy import stats
 
@@ -17,7 +19,8 @@ class WallFollow(object):
         rospy.init_node('wall_follow')
         self.publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
-        rospy.Subscriber('/scan', LaserScan, self.process_scan)
+        rospy.Subscriber('/stable_scan', LaserScan, self.process_scan)
+        rospy.Subscriber('/projected_stable_scan', PointCloud, self.process_scan_ransac)
         rospy.Subscriber('/odom', Odometry, self.update_neato_pos)
         self.position = Pose()
 
@@ -151,6 +154,42 @@ class WallFollow(object):
         else:
             return d2
 
+    def process_scan_ransac(self, msg):
+        self.approach_follow_wall(([val.x, val.y] for val in msg.points))
+
+    def approach_follow_wall(self, ranges):
+        # Find a wall, check how far we are from it, approach it if needed, else follow
+        slope, intercept, r_value, p_value, std_err = self.ransac_ranges(ranges)
+        perpendicular_slope = -1./slope
+        des_distance_from_wall = 0.5 
+        error_thresh = 0.2
+        dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
+        if (abs(dist_from_line - des_distance_from_wall) > error_thresh):
+            self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - des_distance_from_wall)))
+        else:
+            pass
+
+
+    def position_along_slope(self, slope_to_follow, distance):
+        # Find a new position "distance" closer along "slope_to_follow"
+        if (distance > 0):
+            new_x = np.sqrt(np.square(distance)/(np.square(slope_to_follow) + 1)) + self.position.position.x
+            new_y = slope_to_follow * new_x + self.position.position.y
+        else:
+            new_x = self.position.position.x - np.sqrt(np.square(distance)/(np.square(slope_to_follow) + 1))
+            new_y = self.position.position.y - slope_to_follow * new_x 
+        return (new_x, new_y)
+
+    def compare_position(self, target):
+        # Compare current position to target position
+        xdiff = self.position.poistion.x - target.x
+        ydiff = self.position.position.y - target.y
+        return xdiff, ydiff
+
+    def dist_from_line(self, line_slope, line_intercept, point):
+        # Return distance from given point to given line
+        return (abs(point[0]*line_slope - point[1] + line_intercept)/np.sqrt(np.square(line_slope) + 1))
+
     def go_to_point(self, point):
         """Go to a target point. 
         point: a cartesian point of the form (x, y).
@@ -177,19 +216,19 @@ class WallFollow(object):
         error_thresh = 0.5
         while (iterations < max_iterations):
             maybeinliers = random.sample(ranges, n)
-            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress([val[0] for val in maybeinliers], [val[1] for val in maybeinliers])
+            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress((val[0] for val in maybeinliers), (val[1] for val in maybeinliers))
             alsoinliers = []
             for val in (ranges not in maybeinliers):
                 if (abs(val[0]*slope + intercept - val[1]) < error_thresh ): #if point fits maybemodel with an error smaller than t
                     alsoinliers += val
             if (len(alsoinliers) > d):
-                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress([val[0] for val in (maybeinliers + alsoinliers)], [val[1] for val in (maybeinliers + alsoinliers)]) # model parameters fitted to all points in maybeinliers and alsoinliers
+                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress((val[0] for val in (maybeinliers + alsoinliers)), (val[1] for val in (maybeinliers + alsoinliers))) # model parameters fitted to all points in maybeinliers and alsoinliers
                 if (std_err < besterr):
                     bestfit = bettermodel
                     besterr = thiserr
             iterations += 1
         return bestfit
-    
+
     def stop_motors(self):
         """Stops all movement of the robot."""
         twist = Twist()
