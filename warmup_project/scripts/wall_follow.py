@@ -129,22 +129,24 @@ class WallFollow(object):
 
     def process_scan_ransac(self, msg):
         rospy.on_shutdown(self.stop_motors)
-        self.approach_follow_wall(([val.x, val.y] for val in msg.points))
+        self.approach_follow_wall([[val.x, val.y] for val in msg.points])
 
     def approach_follow_wall(self, ranges):
         # Find a wall, check how far we are from it, approach it if needed, else follow
         slope, intercept, r_value, p_value, std_err = self.ransac_ranges(ranges)
-        self.publish_line(slope, intercept)
         self.publish_neato_pos()
-        perpendicular_slope = -1./slope
-        along_wall_incr = 0.1 # increment to travel along wall
-        target_distance_from_wall = 0.5 # distance from wall we want to be
-        error_thresh = 0.2 # deviation from target distance from wall allowed
-        dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
-        if (abs(dist_from_line - target_distance_from_wall) > error_thresh):
-            self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - target_distance_from_wall)))
+        if slope is not 0:
+            perpendicular_slope = -1./slope
+            along_wall_incr = 0.1 # increment to travel along wall
+            target_distance_from_wall = 0.5 # distance from wall we want to be
+            error_thresh = 0.2 # deviation from target distance from wall allowed
+            dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
+            if (abs(dist_from_line - target_distance_from_wall) > error_thresh):
+                self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - target_distance_from_wall)))
+            else:
+                self.go_to_point(self.position_along_slope(slope, along_wall_incr))
         else:
-            self.go_to_point(self.position_along_slope(slope, along_wall_incr))
+            print("received bad data.")
 
     def position_along_slope(self, slope_to_follow, distance):
         # Find a new position "distance" closer along "slope_to_follow"
@@ -190,20 +192,20 @@ class WallFollow(object):
         # Implementation of the RANSAC algorithm adopted from wikipedia pseudocode: https://en.wikipedia.org/wiki/Random_sample_consensus
         iterations = 0
         max_iterations = 20 # number of iterations we want to run
-        n = 20 # minimum number of data points required to estimate model parameters
-        d = 10 # number of close data points required to assert that a model fits well to data
-        bestfit = None
+        n = 10 # minimum number of data points required to estimate model parameters
+        d = 5 # number of close data points required to assert that a model fits well to data
+        bestfit = (0, 0, 0, 0, 0)
         besterr = 100
         error_thresh = 0.5  # meters away from the line a point can be before it's too far to fit the model
         while (iterations < max_iterations):
             maybeinliers = random.sample(ranges, n)
-            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress((val[0] for val in maybeinliers), (val[1] for val in maybeinliers))
+            maybemodel = slope, intercept, r_value, p_value, std_err = stats.linregress([val[0] for val in maybeinliers], [val[1] for val in maybeinliers])
             alsoinliers = []
-            for val in (ranges not in maybeinliers):
+            for val in np.setdiff1d(maybeinliers, ranges):
                 if (abs(val[0]*slope + intercept - val[1]) < error_thresh ): #if point fits maybemodel with an error smaller than t
                     alsoinliers += val
             if (len(alsoinliers) > d):
-                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress((val[0] for val in (maybeinliers + alsoinliers)), (val[1] for val in (maybeinliers + alsoinliers))) # model parameters fitted to all points in maybeinliers and alsoinliers
+                bettermodel = slope, intercept, r_value, p_value, std_err = stats.linregress([val[0] for val in (maybeinliers + alsoinliers)], [val[1] for val in (maybeinliers + alsoinliers)]) # model parameters fitted to all points in maybeinliers and alsoinliers
                 if (std_err < besterr):
                     bestfit = bettermodel
                     besterr = thiserr
