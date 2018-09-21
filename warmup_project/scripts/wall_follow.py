@@ -53,8 +53,8 @@ class WallFollow(object):
         point1.y = 0
         point2.x = 3
         point2.y = 3*slope
-        marker.points += point1
-        marker.points += point2
+        marker.points.append(point1)
+        marker.points.append(point2)
         self.marker_publisher.publish(marker)
 
     def update_neato_pos(self, msg):
@@ -143,6 +143,7 @@ class WallFollow(object):
             error_thresh = 0.1 # deviation from target distance from wall allowed
             dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
             print(dist_from_line)
+            self.publish_line(slope, intercept)
             if (abs(dist_from_line - target_distance_from_wall) > error_thresh):
                 self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - target_distance_from_wall)))
             else:
