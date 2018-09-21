@@ -49,47 +49,16 @@ class WallFollow(object):
         marker.color = ColorRGBA(100, 255, 255, 255)
         point1 = Point()
         point2 = Point()
-        point1.x = intercept
-        point1.y = 0
-        point2.x = 3*slope
-        point2.y = 3
+        point1.x = 0
+        point1.y = intercept
+        point2.x = 3
+        point2.y = 3*slope
         marker.points.append(point1)
         marker.points.append(point2)
         self.marker_publisher.publish(marker)
 
     def update_neato_pos(self, msg):
         self.position = msg.pose.pose
-
-    def turn_from_ranges(self, range_tuple0, range_tuple1):
-        tolerance = 0.05 # Allowable difference in ranges
-        kp = 1.5 # Proportional constant
-        range0 = range_tuple0[1]
-        range1 = range_tuple1[1]
-        if ((range0 != 0.0) and (range1 != 0.0)):
-            # We're getting ranges for both angles
-            difference = range0 - range1
-            proportion = (difference * 2)/(range0 + range1)
-            # Making turn speed more regular
-            if (difference > tolerance):
-                # Adjust angle if we are not aligned
-                return (proportion/kp, 0.0)
-            elif (difference < -tolerance):
-                # Adjust angle if we are not aligned
-                return (proportion/kp, 0.0)
-            else:
-                # If we are aligned to wall, move forward and publish a marker to where the wall is
-                self.publish_marker(range_tuple0, range_tuple1)
-                return (0.0, 0.25)
-        else:
-            if (range0 != 0.0):
-                # if we're only getting one range, adjust to turn the missing range closer
-                return (-0.25, 0.0)
-            elif (range1 != 0.0):
-                # if we're only getting one range, adjust to turn the missing range closer
-                return (0.25, 0.0)
-            else:
-                # if we're not getting any ranges, rotate slowly in a random direction. 
-                return (0.25 * random.choice([-1, 1]), 0.0)
 
     def cartesian_to_polar(self, x, y):
         r = np.sqrt(np.square(x) + np.square(y))
@@ -160,12 +129,6 @@ class WallFollow(object):
             new_x = self.position.position.x - np.sqrt(np.square(distance)/(np.square(slope_to_follow) + 1))
             new_y = self.position.position.y - slope_to_follow * new_x 
         return (new_x, new_y)
-
-    def compare_position(self, target):
-        # Compare current position to target position
-        xdiff = self.position.poistion.x - target.x
-        ydiff = self.position.position.y - target.y
-        return xdiff, ydiff
 
     def dist_from_line(self, line_slope, line_intercept, point):
         # Return distance from given point to given line
