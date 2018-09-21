@@ -2,6 +2,7 @@
 from __future__ import print_function, division
 import rospy
 from sensor_msgs.msg import LaserScan
+from neato_node.msg import Bump
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan, PointCloud
 from geometry_msgs.msg import Twist, Vector3, Pose, Point
@@ -20,9 +21,12 @@ class WallFollow(object):
         self.publisher = rospy.Publisher('cmd_vel', Twist, queue_size=10)
         #self.publisher = rospy.Publisher('/wall_follow/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
+        self.line_publisher = rospy.Publisher('/line_marker', Marker, queue_size=10)
         rospy.Subscriber('/projected_stable_scan', PointCloud, self.process_scan_ransac)
         rospy.Subscriber('/odom', Odometry, self.update_neato_pos)
+        rospy.Subscriber('/bump', Bump, self.update_bump)
         self.position = Pose()
+        self.bump = False
 
     def publish_neato_pos(self):
         self.publish_marker(self.position.position.x, self.position.position.y)
@@ -55,7 +59,16 @@ class WallFollow(object):
         point2.y = 3*slope
         marker.points.append(point1)
         marker.points.append(point2)
-        self.marker_publisher.publish(marker)
+        self.line_publisher.publish(marker)
+
+    def update_bump(self, msg):
+        if any([msg.leftFront,
+            msg.rightFront,
+            msg.leftSide,
+            msg.rightSide]):
+            self.bump = True
+        else:
+            self.bump = False
 
     def update_neato_pos(self, msg):
         self.position = msg.pose.pose
@@ -102,23 +115,28 @@ class WallFollow(object):
         self.approach_follow_wall([[val.x, val.y] for val in msg.points])
 
     def approach_follow_wall(self, ranges):
-        # Find a wall, check how far we are from it, approach it if needed, else follow
-        slope, intercept, r_value, p_value, std_err = self.ransac_ranges(ranges)
-        self.publish_neato_pos()
-        if slope is not 0:
-            perpendicular_slope = -1./slope
-            along_wall_incr = 0.1 # increment to travel along wall
-            target_distance_from_wall = 0.5 # distance from wall we want to be
-            error_thresh = 0.1 # deviation from target distance from wall allowed
-            dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
-            print(dist_from_line)
-            self.publish_line(slope, intercept)
-            if (abs(dist_from_line - target_distance_from_wall) > error_thresh):
-                self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - target_distance_from_wall)))
+        if not self.bump:
+            # Find a wall, check how far we are from it, approach it if needed, else follow
+            slope, intercept, r_value, p_value, std_err = self.ransac_ranges(ranges)
+            self.publish_neato_pos()
+            if slope is not 0:
+                perpendicular_slope = -1./slope
+                along_wall_incr = 0.1 # increment to travel along wall
+                target_distance_from_wall = 0.5 # distance from wall we want to be
+                error_thresh = 0.2 # deviation from target distance from wall allowed
+                dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
+                self.publish_line(slope, intercept)
+                if (abs(dist_from_line - target_distance_from_wall) > error_thresh):
+                    self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - target_distance_from_wall)))
+                else:
+                    self.go_to_point(self.position_along_slope(slope, along_wall_incr))
             else:
-                self.go_to_point(self.position_along_slope(slope, along_wall_incr))
+                print("received bad data.")
         else:
-            print("received bad data.")
+            twist = Twist()
+            twist.angular.z = 0.0
+            twist.linear.x = 0.0
+            self.publisher.publish(twist)
 
     def position_along_slope(self, slope_to_follow, distance):
         # Find a new position "distance" closer along "slope_to_follow"
@@ -138,7 +156,6 @@ class WallFollow(object):
         """Go to a target point. 
         point: a cartesian point of the form (x, y) in the odometry frame.
         """
-        print(point)
         current_position = self.convert_pose_to_xy_and_theta(self.position)
 
         # The target point relative to the robot's coordinate system.
@@ -149,22 +166,28 @@ class WallFollow(object):
         distance = np.linalg.norm([np.array(point) - np.array(current_position[:2])])
         # The angle between the heading of the robot and the target point (angular error).
         angle = -self.angle_diff(current_position[2], point_rel_polar[1])
+        print(angle)
 
-        #self.publish_marker(point[0], point[1])
+        angle_tolerance = 0.9
+
+        self.publish_marker(point[0], point[1])
         twist = Twist()
-        twist.linear.x = 0.0 * distance
+        if np.abs(angle) < angle_tolerance:
+            twist.linear.x = 0.2 * distance
+        else:
+            twist.linear.x = 0.0
         twist.angular.z = 0.5 * angle
         self.publisher.publish(twist)
 
     def ransac_ranges(self, ranges):
         # Implementation of the RANSAC algorithm adopted from wikipedia pseudocode: https://en.wikipedia.org/wiki/Random_sample_consensus
         iterations = 0
-        max_iterations = 20 # number of iterations we want to run
-        n = 10 # minimum number of data points required to estimate model parameters
-        d = 10 # number of close data points required to assert that a model fits well to data
+        max_iterations = 30 # number of iterations we want to run
+        n = 30
+        d = 20
         bestfit = (0, 0, 0, 0, 0)
         besterr = 100
-        error_thresh = 0.5  # meters away from the line a point can be before it's too far to fit the model
+        error_thresh = 0.2  # meters away from the line a point can be before it's too far to fit the model
         while (iterations < max_iterations):
             if (len(ranges) > n):
                 maybeinliers = random.sample(ranges, n)
