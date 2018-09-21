@@ -46,13 +46,13 @@ class WallFollow(object):
         marker.type = 4 # LINE_STRIP
         marker.header.frame_id = "odom"
         marker.scale = Vector3(0.1, 0.1, 0.1)
-        marker.color = ColorRGBA(0, 255, 255, 255)
+        marker.color = ColorRGBA(100, 255, 255, 255)
         point1 = Point()
         point2 = Point()
         point1.x = intercept
         point1.y = 0
-        point2.x = 3
-        point2.y = 3*slope
+        point2.x = 3*slope
+        point2.y = 3
         marker.points.append(point1)
         marker.points.append(point2)
         self.marker_publisher.publish(marker)
@@ -187,9 +187,9 @@ class WallFollow(object):
         # The angle between the heading of the robot and the target point (angular error).
         angle = -self.angle_diff(current_position[2], point_rel_polar[1])
 
-        self.publish_marker(point[0], point[1])
+        #self.publish_marker(point[0], point[1])
         twist = Twist()
-        twist.linear.x = 0.05 * distance
+        twist.linear.x = 0.0 * distance
         twist.angular.z = 0.5 * angle
         self.publisher.publish(twist)
 
