@@ -31,9 +31,9 @@ class WallFollow(object):
         # Build the marker and publish it
         marker = Marker()
         marker.type = 2
-        marker.header.frame_id = "base_link"
+        marker.header.frame_id = "odom"
         marker.scale = Vector3(0.1, 0.1, 0.1)
-        marker.color = ColorRGBA(100, 100, 100, 255)
+        marker.color = ColorRGBA(255, 100, 100, 255)
         marker.pose = Pose()
         marker.pose.position = Point()
         marker.pose.position.x = pointx
@@ -140,8 +140,9 @@ class WallFollow(object):
             perpendicular_slope = -1./slope
             along_wall_incr = 0.1 # increment to travel along wall
             target_distance_from_wall = 0.5 # distance from wall we want to be
-            error_thresh = 0.05 # deviation from target distance from wall allowed
+            error_thresh = 0.1 # deviation from target distance from wall allowed
             dist_from_line = self.dist_from_line(slope, intercept, (self.position.position.x, self.position.position.y))
+            print(dist_from_line)
             if (abs(dist_from_line - target_distance_from_wall) > error_thresh):
                 self.go_to_point(self.position_along_slope(perpendicular_slope, (dist_from_line - target_distance_from_wall)))
             else:
@@ -183,10 +184,11 @@ class WallFollow(object):
         # The distance from the target point (linear error).
         distance = np.linalg.norm([np.array(point) - np.array(current_position[:2])])
         # The angle between the heading of the robot and the target point (angular error).
-        angle = self.angle_diff(current_position[2], point_rel_polar[1])
+        angle = -self.angle_diff(current_position[2], point_rel_polar[1])
 
+        self.publish_marker(point[0], point[1])
         twist = Twist()
-        twist.linear.x = 0.1 * distance
+        twist.linear.x = 0.05 * distance
         twist.angular.z = 0.5 * angle
         self.publisher.publish(twist)
 
@@ -195,7 +197,7 @@ class WallFollow(object):
         iterations = 0
         max_iterations = 20 # number of iterations we want to run
         n = 10 # minimum number of data points required to estimate model parameters
-        d = 5 # number of close data points required to assert that a model fits well to data
+        d = 10 # number of close data points required to assert that a model fits well to data
         bestfit = (0, 0, 0, 0, 0)
         besterr = 100
         error_thresh = 0.5  # meters away from the line a point can be before it's too far to fit the model
