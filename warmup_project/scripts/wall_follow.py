@@ -18,8 +18,8 @@ from scipy import stats
 class WallFollow(object):
     def __init__(self):
         rospy.init_node('wall_follow')
-        self.publisher = rospy.Publisher('cmd_vel', Twist, queue_size=10)
-        #self.publisher = rospy.Publisher('/wall_follow/cmd_vel', Twist, queue_size=10)
+        #self.publisher = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+        self.publisher = rospy.Publisher('/wall_follow/cmd_vel', Twist, queue_size=10)
         self.marker_publisher = rospy.Publisher('/visualization_marker', Marker, queue_size=10)
         self.line_publisher = rospy.Publisher('/line_marker', Marker, queue_size=10)
         rospy.Subscriber('/projected_stable_scan', PointCloud, self.process_scan_ransac)
